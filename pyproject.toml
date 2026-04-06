@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "interdependent-lib"
 version = "0.1.0"
-description = "PTCA — Probabilistic Tensor Context Architecture: sentinel channels, prime-node tensor, provenance hashing, and exchange mechanics"
+description = "PTCA/PCEA/EDCM — sentinel tensor architecture, guardian state encryption, and bone/marker inventory"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
@@ -23,3 +23,6 @@ Repository = "https://github.com/wayseer00/interdependent-lib"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["interdependent_lib*"]
+
+[tool.setuptools.package-data]
+"interdependent_lib.edcm.data" = ["*.json"]
