@@ -12,12 +12,14 @@ authors = [
   { name = "Erin Patrick Spencer", email = "wayseer@interdependentway.org" }
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+  "cryptography>=41",
+]
 
 [project.urls]
 Homepage = "https://github.com/wayseer00/interdependent-lib"
 Repository = "https://github.com/wayseer00/interdependent-lib"
 
 [tool.setuptools.packages.find]
-where = ["." ]
-include = ["ptca*"]
+where = ["."]
+include = ["interdependent_lib*"]
