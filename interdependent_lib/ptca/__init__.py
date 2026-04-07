@@ -1,5 +1,5 @@
 # GPT/Claude generated; context, prompt Erin Spencer
-"""PTCA — Prime-Tensor-Channel Architecture: sentinel state, tensor routing, exchange."""
+"""PTCA — Prime Tensor Circular Architecture: prime-indexed tensor, sentinel channels, exchange routing."""
 
 from .constants import (
     AGG6,

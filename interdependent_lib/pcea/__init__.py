@@ -1,5 +1,5 @@
 # GPT/Claude generated; context, prompt Erin Spencer
-"""PCEA — Guardian state encryption, key management, and secret sharing."""
+"""PCEA — Prime Circle Encryption Algorithm: key management, AEAD sealing, and secret sharing."""
 
 from .aead import AuthenticationError, seal, unseal
 from .codec import encode_aad, encode_key_info, encode_nonce_input, encode_wrap_aad

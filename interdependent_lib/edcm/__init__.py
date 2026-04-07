@@ -1,5 +1,5 @@
 # GPT/Claude generated; context, prompt Erin Spencer
-"""EDCM — bone inventory and marker tables for EDCM-PCNA-PCTA transcript analysis."""
+"""EDCM — Energy Dissonance Circuit Model: bone inventory and marker tables for transcript analysis."""
 
 from .bones import affixes, bone_set, bones, meta, multiword_joins, punctuation, words_by_family
 from .markers import family, marker_set, markers
