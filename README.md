@@ -1,9 +1,57 @@
 # interdependent-lib
 
-Pure-Python implementation of three interdependent subsystems used in
-EDCM-PCNA-PCTA transcript analysis and guardian-state encryption.
+Pure-Python implementation of five interdependent subsystems arranged in a
+strict hierarchy for EDCM-PCNA-PCTA transcript analysis and guardian-state
+encryption.
+
+```
+PCNA  ←  back-propagating neural network (base tensor)
+PCTA  ←  circle: 7 PCNA tensors, audited as one tensor
+PTCA  ←  seed: 7 PCTA circles → core: 53 seeds (4 sentinel seeds → 9 S-channels)
+PCEA  ←  encryption layer over PTCA guardian state
+EDCM  ←  transcript analysis using bone/marker vocabulary
+```
 
 ## Subsystems
+
+### PCNA — back-propagating neural network
+
+The base tensor layer. A pure-Python MLP with configurable layer sizes,
+`relu`/`sigmoid`/`tanh`/`linear` activations, MSE loss, and gradient-descent
+backpropagation.
+
+```python
+from interdependent_lib.pcna import PCNANetwork
+
+net = PCNANetwork(layer_sizes=[4, 8, 4, 2], activations=["relu", "relu", "linear"])
+outputs = net.forward([0.5, 0.1, 0.9, 0.3])
+loss, grad = PCNANetwork.mse_loss(outputs, targets=[1.0, 0.0])
+net.backward(grad)
+net.update(learning_rate=0.01)
+print(net.as_tensor()[:4])   # flat weight tensor
+```
+
+**No external dependencies.**
+
+---
+
+### PCTA — Prime Circle Tensor Architecture
+
+A circle of exactly 7 PCNA networks, audited and exposed as a single tensor.
+
+```python
+from interdependent_lib.pcna import PCNANetwork
+from interdependent_lib.pcta import PCTACircle
+
+members = [PCNANetwork([4, 8, 2]) for _ in range(7)]
+circle  = PCTACircle(members, circle_id=0)
+print(circle.audit())        # weight norms, spread, param counts
+print(len(circle.as_tensor()))  # flat tensor of all 7 networks
+```
+
+**No external dependencies.**
+
+---
 
 ### PTCA — Prime Tensor Circular Architecture
 
