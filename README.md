@@ -17,7 +17,7 @@ EDCM  ←  transcript analysis using bone/marker vocabulary
 ### PCNA — back-propagating neural network
 
 The base tensor layer. A pure-Python MLP with configurable layer sizes,
-`relu`/`sigmoid`/`tanh`/`linear` activations, MSE loss, and gradient-descent
+`relu`/`sigmoid`/`tanh`/`linear` activations, MSE and binary cross-entropy loss, and gradient-descent
 backpropagation.
 
 ```python

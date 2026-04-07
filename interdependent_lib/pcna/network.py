@@ -18,7 +18,7 @@ Typical usage
 
 from __future__ import annotations
 
-from typing import Any
+import math
 
 from interdependent_lib.pcna.layer import PCNALayer
 
@@ -116,12 +116,6 @@ class PCNANetwork:
             raise ValueError("outputs and targets must have the same length")
         n = len(outputs)
         loss = -sum(
-            t * (o + eps) ** 0 if o <= 0 else  # clip guard
-            t * __import__("math").log(o + eps) + (1 - t) * __import__("math").log(1 - o + eps)
-            for o, t in zip(outputs, targets)
-        ) / n
-        import math
-        loss = -sum(
             t * math.log(max(o, eps)) + (1 - t) * math.log(max(1 - o, eps))
             for o, t in zip(outputs, targets)
         ) / n
@@ -148,11 +142,11 @@ class PCNANetwork:
         grad = grad_output
         for layer in reversed(self.layers):
             grad, gw, gb = layer.backward(grad)
-            grads_w.insert(0, gw)
-            grads_b.insert(0, gb)
+            grads_w.append(gw)
+            grads_b.append(gb)
 
-        self._last_grads_w = grads_w
-        self._last_grads_b = grads_b
+        self._last_grads_w = grads_w[::-1]
+        self._last_grads_b = grads_b[::-1]
         return grad
 
     # ------------------------------------------------------------------

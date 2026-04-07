@@ -14,7 +14,6 @@ Backpropagation computes:
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from interdependent_lib.pcna.activations import apply, apply_grad
 

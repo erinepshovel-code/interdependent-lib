@@ -51,7 +51,7 @@ interdependent_lib/
 │   ├── __init__.py       # re-exports full public API
 │   ├── activations.py    # relu, sigmoid, tanh, linear + derivatives
 │   ├── layer.py          # PCNALayer (weights, forward, backward, update)
-│   └── network.py        # PCNANetwork (MLP, mse_loss, bce_loss, as_tensor)
+│   └── network.py        # PCNANetwork (MLP, mse_loss, binary_cross_entropy, as_tensor)
 ├── pcta/
 │   ├── __init__.py       # re-exports full public API
 │   └── circle.py         # PCTACircle (7 PCNANetworks, audit, as_tensor)

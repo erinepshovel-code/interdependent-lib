@@ -119,14 +119,15 @@ class PCTACircle:
 
         mean_norm = sum(norms) / len(norms)
         spread = max(norms) - min(norms)
+        param_counts = [net.parameter_count for net in self.members]
 
         audit: dict[str, Any] = {
             "circle_id": self.circle_id,
             "weight_norms": norms,
             "weight_mean": mean_norm,
             "weight_spread": spread,
-            "param_counts": [net.parameter_count for net in self.members],
-            "total_params": sum(net.parameter_count for net in self.members),
+            "param_counts": param_counts,
+            "total_params": sum(param_counts),
         }
         self._last_audit = audit
         return audit
