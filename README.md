@@ -5,7 +5,7 @@ EDCM-PCNA-PCTA transcript analysis and guardian-state encryption.
 
 ## Subsystems
 
-### PTCA — Prime-Tensor-Channel Architecture
+### PTCA — Prime Tensor Circular Architecture
 
 A 53 × 9 × 8 × 7 routing tensor indexed by prime nodes, nine sentinel channels
 (S1–S9), eight processing phases, and seven heptagram slots.  Every exchange is
