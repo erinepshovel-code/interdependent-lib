@@ -49,11 +49,12 @@ def _bytes_data_offset() -> int:
     This is an implementation detail of CPython and may change across versions.
     """
     # On CPython, bytes has ob_refcnt, ob_type, ob_size, ob_shash, then data.
-    # The ob_shash field is 8 bytes (Py_hash_t). This yields offset 32 on 64-bit.
+    # 64-bit: refcnt(8) + type(8) + size(8) + hash(8) = 32
+    # 32-bit: refcnt(4) + type(4) + size(4) + hash(4) = 16
     import sys
     if sys.maxsize > 2**32:
-        return 33  # 64-bit: refcnt(8) + type(8) + size(8) + hash(8) + 1 null
-    return 21      # 32-bit
+        return 32
+    return 16
 
 
 def wipe(value: bytes | bytearray) -> None:
