@@ -4,7 +4,7 @@
 
 `interdependent-lib` is a pure-Python library that implements three subsystems:
 
-- **PTCA** (`interdependent_lib/ptca/`) — Prime-Tensor-Channel Architecture: a
+- **PTCA** (`interdependent_lib/ptca/`) — Prime Tensor Circular Architecture: a
   53×9×8×7 routing tensor, nine sentinel channels (S1–S9), exchange scoring,
   provenance hashing, and a high-level `PTCAInstance` session object.
 - **PCEA** (`interdependent_lib/pcea/`) — Guardian state encryption: AES-256-GCM
@@ -65,7 +65,7 @@ interdependent_lib/
     │   ├── bones_punct_v1.json    # punctuation entries
     │   └── markers_v1.json        # 9 marker families × 6 entries
     └── parser/
-        └── turns_rounds.py        # stub: parse_transcript()
+        └── turns_rounds.py        # parse_transcript(): join → tokenize → tag → PKQTS counts
 ```
 
 ## Key design notes
