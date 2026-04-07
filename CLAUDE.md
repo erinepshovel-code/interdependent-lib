@@ -7,10 +7,10 @@
 - **PTCA** (`interdependent_lib/ptca/`) — Prime Tensor Circular Architecture: a
   53×9×8×7 routing tensor, nine sentinel channels (S1–S9), exchange scoring,
   provenance hashing, and a high-level `PTCAInstance` session object.
-- **PCEA** (`interdependent_lib/pcea/`) — Guardian state encryption: AES-256-GCM
+- **PCEA** (`interdependent_lib/pcea/`) — Prime Circle Encryption Algorithm: AES-256-GCM
   sealing/unsealing, HKDF-SHA256 key derivation, Shamir secret sharing over
   GF(256), key wrapping, rekey ceremonies, and best-effort zeroization helpers.
-- **EDCM** (`interdependent_lib/edcm/`) — Bone inventory and marker tables for
+- **EDCM** (`interdependent_lib/edcm/`) — Energy Dissonance Circuit Model: bone inventory and marker tables for
   EDCM-PCNA-PCTA transcript analysis: 253 bone words mapped to PKQTS families,
   35 multiword joins, morphological affixes, punctuation, and 9 marker families
   (C/R/D/N/L/O/F/E/I). Data sourced from `edcmbone_canon_data_v1`.

@@ -30,7 +30,7 @@ print(inst.audit_tail(3))    # last 3 S9 audit entries
 
 ---
 
-### PCEA — Guardian State Encryption
+### PCEA — Prime Circle Encryption Algorithm
 
 AES-256-GCM sealing/unsealing of `LiveState`, HKDF-SHA256 key derivation,
 Shamir secret sharing over GF(256), key wrapping, and rekey ceremonies.
@@ -53,7 +53,7 @@ wipe(live_key)
 
 ---
 
-### EDCM — Bone Inventory & Marker Tables
+### EDCM — Energy Dissonance Circuit Model
 
 253 English *bone* words (operator/structural words that create, redirect, or
 resolve constraint relationships) mapped to PKQTS families, plus 35 multiword
