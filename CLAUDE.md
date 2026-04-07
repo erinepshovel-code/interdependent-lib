@@ -2,18 +2,32 @@
 
 ## Repository overview
 
-`interdependent-lib` is a pure-Python library that implements three subsystems:
+`interdependent-lib` is a pure-Python library that implements five interdependent
+subsystems arranged in a strict hierarchy:
 
+```
+PCNA  ←  back-propagating neural network (base tensor)
+PCTA  ←  circle: 7 PCNA tensors, audited as one tensor
+PTCA  ←  seed: 7 PCTA circles → core: 53 seeds (4 sentinel seeds → 9 S-channels)
+PCEA  ←  encryption layer over PTCA guardian state
+EDCM  ←  transcript analysis using bone/marker vocabulary
+```
+
+- **PCNA** (`interdependent_lib/pcna/`) — back-propagating neural network: the
+  base tensor layer. Pure-Python MLP with forward pass, MSE/BCE loss, and
+  gradient-descent backpropagation.
+- **PCTA** (`interdependent_lib/pcta/`) — Prime Circle Tensor Architecture: a
+  circle of exactly 7 PCNA tensors, audited and exposed as a single tensor.
 - **PTCA** (`interdependent_lib/ptca/`) — Prime Tensor Circular Architecture: a
-  53×9×8×7 routing tensor, nine sentinel channels (S1–S9), exchange scoring,
-  provenance hashing, and a high-level `PTCAInstance` session object.
-- **PCEA** (`interdependent_lib/pcea/`) — Prime Circle Encryption Algorithm: AES-256-GCM
-  sealing/unsealing, HKDF-SHA256 key derivation, Shamir secret sharing over
-  GF(256), key wrapping, rekey ceremonies, and best-effort zeroization helpers.
-- **EDCM** (`interdependent_lib/edcm/`) — Energy Dissonance Circuit Model: bone inventory and marker tables for
-  EDCM-PCNA-PCTA transcript analysis: 253 bone words mapped to PKQTS families,
-  35 multiword joins, morphological affixes, punctuation, and 9 marker families
-  (C/R/D/N/L/O/F/E/I). Data sourced from `edcmbone_canon_data_v1`.
+  seed holds 7 PCTA circles; a full core is 53 seeds. 4 of those seeds are
+  sentinels, upgraded to 9 sentinel channels (S1–S9). Tensor shape: 53×9×8×7.
+- **PCEA** (`interdependent_lib/pcea/`) — Prime Circle Encryption Algorithm:
+  AES-256-GCM sealing/unsealing, HKDF-SHA256 key derivation, Shamir secret
+  sharing over GF(256), key wrapping, rekey ceremonies, and zeroization helpers.
+- **EDCM** (`interdependent_lib/edcm/`) — Energy Dissonance Circuit Model: bone
+  inventory and marker tables for transcript analysis. 253 bone words mapped to
+  PKQTS families, 35 multiword joins, morphological affixes, punctuation, and 9
+  marker families (C/R/D/N/L/O/F/E/I). Data sourced from `edcmbone_canon_data_v1`.
 
 ## Development branch
 
@@ -33,6 +47,14 @@ Requires Python ≥ 3.9 and `cryptography>=41`.
 ```
 interdependent_lib/
 ├── __init__.py
+├── pcna/
+│   ├── __init__.py       # re-exports full public API
+│   ├── activations.py    # relu, sigmoid, tanh, linear + derivatives
+│   ├── layer.py          # PCNALayer (weights, forward, backward, update)
+│   └── network.py        # PCNANetwork (MLP, mse_loss, binary_cross_entropy, as_tensor)
+├── pcta/
+│   ├── __init__.py       # re-exports full public API
+│   └── circle.py         # PCTACircle (7 PCNANetworks, audit, as_tensor)
 ├── ptca/
 │   ├── __init__.py       # re-exports full public API
 │   ├── constants.py      # NODES, SENTINELS, PHASES, SLOTS, weights
