@@ -115,13 +115,22 @@ print(len(bone_set()))           # 288 (bones + multiword joins)
 print(words_by_family("T")[:3]) # temporal/aspectual bones
 
 from interdependent_lib.edcm.parser.turns_rounds import parse_transcript
+from interdependent_lib.edcm.canon import CanonLoader
 
 result = parse_transcript([
     {"speaker": "A", "text": "I will not do that again."},
     {"speaker": "B", "text": "But of course you should."},
 ])
-for turn in result["turns"]:
-    print(turn["speaker"], turn["bone_counts"])
+for turn in result.turns:
+    print(turn.speaker, dict(turn.family_counts))
+print(result.family_counts())   # aggregate PKQTS totals
+print(len(result.rounds))       # exchange rounds
+
+# Low-level access via CanonLoader
+canon = CanonLoader()
+print(canon.lookup_word("not"))              # bone entry dict
+print(canon.metric_names())                  # ["C", "R", "D", "N", "L", "O", "F", "E", "I"]
+print(canon.all_marker_phrases("R")[:3])    # refusal / constraint phrases
 ```
 
 **No external dependencies.**  Data loaded lazily via `importlib.resources`.
