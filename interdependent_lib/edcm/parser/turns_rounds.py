@@ -1,305 +1,497 @@
 # GPT/Claude generated; context, prompt Erin Spencer
 """
-Transcript parser for EDCM-PCNA-PCTA analysis.
+EDCM transcript parser.
 
-Parses a transcript into turns, applies multiword joins, tokenizes, and tags
-each token against the bone inventory.  Returns a structured result suitable
-for downstream PKQTS family counting.
+Parses a transcript into turns and rounds, classifying each token against the
+bone canon (CanonLoader).  Classification pipeline:
+
+  1. multiword join (2-gram smash)
+  2. single-word lookup
+  3. prefix strip → affix lookup
+  4. suffix strip → affix lookup
+  5. punctuation lookup (only entries that emit tokens)
+  6. flesh (unclassified)
+
+Public API
+----------
+parse_transcript(transcript, round_strategy="cycle", canon=None)
+    -> ParsedTranscript
+
+Data classes
+------------
+BoneToken, FleshToken, Turn, Round, ParsedTranscript
 
 Transcript formats accepted
 ---------------------------
 1. List of dicts:  [{"speaker": "A", "text": "..."}, ...]
 2. Plain string:   "A: hello\\nB: world\\n..."  (Speaker: text per line)
-3. Plain string without speaker labels — treated as a single anonymous turn.
-
-Output structure
-----------------
-::
-
-    {
-        "turns": [
-            {
-                "speaker": "A",
-                "raw_text": "of course I will not do that again.",
-                "normalized_text": "ofcourse I will not do that again.",
-                "tokens": ["ofcourse", "I", "will", "not", "do", "that", "again", "."],
-                "tagged": [
-                    {"token": "ofcourse", "bone": True, "primary": "P", "families": ["P"],
-                     "join": True, "original": "of course"},
-                    {"token": "I",       "bone": False},
-                    {"token": "will",    "bone": True, "primary": "T", "families": ["T"]},
-                    {"token": "not",     "bone": True, "primary": "P", "families": ["P"]},
-                    ...
-                ],
-                "bone_counts": {"P": 2, "K": 0, "Q": 0, "T": 1, "S": 0},
-                "bone_tokens": ["ofcourse", "will", "not"],
-            },
-            ...
-        ],
-        "totals": {"P": 2, "K": 0, "Q": 0, "T": 1, "S": 0},
-        "join_log": [
-            {"turn": 0, "original": "of course", "joined": "ofcourse", "start": 0}
-        ],
-    }
+3. Plain string without speaker labels — treated as one anonymous turn.
 """
 
 from __future__ import annotations
 
 import re
-import string
+from collections import Counter
 from typing import Any
 
-from interdependent_lib.edcm.bones import bones as _bones_list
-from interdependent_lib.edcm.bones import multiword_joins as _mw_joins
+from interdependent_lib.edcm.canon import CanonLoader
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+
+class BoneToken:
+    """A single token that matched the bone canon."""
+
+    __slots__ = ("surface", "normalized", "bone_type", "primary", "families", "entry")
+
+    def __init__(
+        self,
+        surface: str,
+        normalized: str,
+        bone_type: str,
+        primary: str,
+        families: list[str],
+        entry: dict[str, Any],
+    ) -> None:
+        self.surface = surface      # original text as it appeared
+        self.normalized = normalized  # key used for lookup
+        self.bone_type = bone_type  # "word" | "multiword" | "affix" | "punct"
+        self.primary = primary      # dominant PKQTS letter
+        self.families = families    # full family list, e.g. ["P", "K"]
+        self.entry = entry          # raw canon dict
+
+    def __repr__(self) -> str:
+        return f"BoneToken({self.surface!r}, {self.primary})"
+
+
+class FleshToken:
+    """A token that did not match any bone canon entry."""
+
+    __slots__ = ("surface",)
+
+    def __init__(self, surface: str) -> None:
+        self.surface = surface
+
+    def __repr__(self) -> str:
+        return f"FleshToken({self.surface!r})"
+
+
+class Turn:
+    """One speaker utterance."""
+
+    def __init__(
+        self,
+        speaker: str,
+        text: str,
+        tokens: list[BoneToken | FleshToken],
+    ) -> None:
+        self.speaker = speaker
+        self.text = text
+        self.tokens = tokens
+        self.bone_tokens: list[BoneToken] = [
+            t for t in tokens if isinstance(t, BoneToken)
+        ]
+        self.flesh_tokens: list[FleshToken] = [
+            t for t in tokens if isinstance(t, FleshToken)
+        ]
+
+        # Family counts for this turn (primary family only)
+        self.family_counts: Counter[str] = Counter()
+        for t in self.bone_tokens:
+            self.family_counts[t.primary] += 1
+
+        self.bone_count = len(self.bone_tokens)
+        self.token_count = len(self.tokens)
+
+    def __repr__(self) -> str:
+        return f"Turn({self.speaker!r}, bones={self.bone_count})"
+
+
+class Round:
+    """A group of turns forming one exchange cycle."""
+
+    def __init__(self, index: int, turns: list[Turn]) -> None:
+        self.index = index
+        self.turns = turns
+
+        # Aggregate across turns
+        self.all_tokens: list[BoneToken | FleshToken] = []
+        self.bone_tokens: list[BoneToken] = []
+        self.family_counts: Counter[str] = Counter()
+
+        for t in turns:
+            self.all_tokens.extend(t.tokens)
+            self.bone_tokens.extend(t.bone_tokens)
+            self.family_counts.update(t.family_counts)
+
+        self.bone_count = len(self.bone_tokens)
+        self.token_count = len(self.all_tokens)
+        self.speakers = [t.speaker for t in turns]
+
+    def __repr__(self) -> str:
+        return (
+            f"Round(index={self.index}, turns={len(self.turns)}, "
+            f"bones={self.bone_count})"
+        )
+
+
+class ParsedTranscript:
+    """Full parse result."""
+
+    def __init__(self, rounds: list[Round], turns: list[Turn]) -> None:
+        self.rounds = rounds
+        self.turns = turns
+        self.speakers = _ordered_unique(t.speaker for t in turns)
+
+    def bone_count(self) -> int:
+        """Total bone token count across all turns."""
+        return sum(t.bone_count for t in self.turns)
+
+    def family_counts(self) -> dict[str, int]:
+        """Aggregate PKQTS family counts across all turns."""
+        total: Counter[str] = Counter()
+        for t in self.turns:
+            total.update(t.family_counts)
+        return dict(total)
+
+    def __repr__(self) -> str:
+        return (
+            f"ParsedTranscript(rounds={len(self.rounds)}, "
+            f"turns={len(self.turns)}, speakers={self.speakers})"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Build lookup tables (module-level, built once)
+# Turn splitter — detects speaker prefixes in common transcript formats
 # ---------------------------------------------------------------------------
 
-def _build_bone_index() -> dict[str, dict[str, Any]]:
-    """word → bone entry (lowercase keys)."""
-    return {entry["word"].lower(): entry for entry in _bones_list()}
+# Patterns tried in order; each must have named groups "speaker" and "text".
+_TURN_PATTERNS = [
+    # **Speaker**: text  (markdown bold)
+    re.compile(r"^\*\*(?P<speaker>[^\*]+)\*\*\s*:\s*(?P<text>.+)$", re.MULTILINE),
+    # [Speaker]: text
+    re.compile(r"^\[(?P<speaker>[^\]]+)\]\s*:\s*(?P<text>.+)$", re.MULTILINE),
+    # Speaker (role): text
+    re.compile(
+        r"^(?P<speaker>[A-Za-z][A-Za-z0-9 _\-]{0,30})\s*\([^)]*\)\s*:\s*(?P<text>.+)$",
+        re.MULTILINE,
+    ),
+    # Speaker: text  (plain label — shortest reliable last)
+    re.compile(
+        r"^(?P<speaker>[A-Za-z][A-Za-z0-9 _\-]{0,30})\s*:\s*(?P<text>.+)$",
+        re.MULTILINE,
+    ),
+]
 
 
-def _build_join_index() -> list[tuple[str, dict[str, Any]]]:
-    """
-    Sorted list of (original_lower, entry) pairs, longest-match-first.
-    """
-    joins = [(j["original"].lower(), j) for j in _mw_joins()]
-    joins.sort(key=lambda x: -len(x[0]))  # longest first
-    return joins
+def _split_turns_str(text: str) -> list[tuple[str, str]]:
+    """Return list of (speaker, text) pairs from a raw transcript string."""
+    for pattern in _TURN_PATTERNS:
+        matches = list(pattern.finditer(text))
+        if len(matches) >= 2:
+            return [
+                (m.group("speaker").strip(), m.group("text").strip())
+                for m in matches
+            ]
+    # Fallback: treat the whole transcript as one anonymous turn
+    stripped = text.strip()
+    if stripped:
+        return [("SPEAKER", stripped)]
+    return []
 
 
-_BONE_INDEX: dict[str, dict[str, Any]] = {}
-_JOIN_INDEX: list[tuple[str, dict[str, Any]]] = []
-
-
-def _ensure_indexes() -> None:
-    global _BONE_INDEX, _JOIN_INDEX
-    if not _BONE_INDEX:
-        _BONE_INDEX = _build_bone_index()
-        _JOIN_INDEX = _build_join_index()
-
-
-# ---------------------------------------------------------------------------
-# Normalisation: apply multiword joins (longest-match-first)
-# ---------------------------------------------------------------------------
-
-def _apply_joins(
-    text: str,
-) -> tuple[str, list[dict[str, Any]]]:
-    """
-    Replace multiword sequences with their joined forms.
-
-    Returns (normalized_text, join_events).
-    join_events records each replacement for losslessness / audit.
-    """
-    _ensure_indexes()
-    events: list[dict[str, Any]] = []
-    text_lower = text.lower()
-
-    # We'll build a replacement map: (start, end) → joined form
-    replacements: list[tuple[int, int, str, str]] = []  # (start, end, original, joined)
-    covered: set[int] = set()
-
-    for original, entry in _JOIN_INDEX:
-        pos = 0
-        while True:
-            idx = text_lower.find(original, pos)
-            if idx == -1:
-                break
-            end = idx + len(original)
-            # Check it isn't already covered by a longer match
-            span = set(range(idx, end))
-            if span & covered:
-                pos = idx + 1
-                continue
-            # Boundary check: must be at word boundary
-            before_ok = idx == 0 or not text_lower[idx - 1].isalpha()
-            after_ok = end == len(text_lower) or not text_lower[end].isalpha()
-            if before_ok and after_ok:
-                replacements.append((idx, end, text[idx:end], entry["joined"]))
-                covered |= span
-                events.append({
-                    "original": text[idx:end],
-                    "joined": entry["joined"],
-                    "start": idx,
-                })
-            pos = idx + 1
-
-    if not replacements:
-        return text, events
-
-    # Apply replacements in reverse order so indices stay valid
-    replacements.sort(key=lambda x: -x[0])
-    result = list(text)
-    for start, end, _, joined in replacements:
-        result[start:end] = list(joined)
-    return "".join(result), events
-
-
-# ---------------------------------------------------------------------------
-# Tokenisation
-# ---------------------------------------------------------------------------
-
-_PUNCT = set(string.punctuation)
-
-
-def _tokenize(text: str) -> list[str]:
-    """
-    Split on whitespace, then split off leading/trailing punctuation as
-    separate tokens.  Preserves internal punctuation (contractions, hyphens).
-    """
-    tokens: list[str] = []
-    for raw in text.split():
-        # Strip leading punctuation
-        leading = []
-        while raw and raw[0] in _PUNCT and raw[0] not in ("'", "-"):
-            leading.append(raw[0])
-            raw = raw[1:]
-        # Strip trailing punctuation
-        trailing = []
-        while raw and raw[-1] in _PUNCT and raw[-1] not in ("'", "-"):
-            trailing.append(raw[-1])
-            raw = raw[:-1]
-        tokens.extend(leading)
-        if raw:
-            tokens.append(raw)
-        tokens.extend(reversed(trailing))
-    return [t for t in tokens if t]
-
-
-# ---------------------------------------------------------------------------
-# Bone tagging
-# ---------------------------------------------------------------------------
-
-def _tag_token(token: str) -> dict[str, Any]:
-    """Return a tagged dict for a single token."""
-    _ensure_indexes()
-    key = token.lower()
-    if key in _BONE_INDEX:
-        entry = _BONE_INDEX[key]
-        return {
-            "token": token,
-            "bone": True,
-            "primary": entry["primary"],
-            "families": entry["families"],
-            "notes": entry.get("notes", ""),
-        }
-    return {"token": token, "bone": False}
-
-
-def _tag_tokens(
-    tokens: list[str],
-    join_events: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Tag all tokens; annotate joined tokens with their original form."""
-    joined_forms = {e["joined"].lower(): e["original"] for e in join_events}
-    tagged: list[dict[str, Any]] = []
-    for token in tokens:
-        t = _tag_token(token)
-        if t["bone"] and token.lower() in joined_forms:
-            t["join"] = True
-            t["original"] = joined_forms[token.lower()]
-        tagged.append(t)
-    return tagged
-
-
-# ---------------------------------------------------------------------------
-# Turn parsing
-# ---------------------------------------------------------------------------
-
-_SPEAKER_RE = re.compile(r"^([A-Za-z0-9_\-]+)\s*:\s*(.*)")
-
-
-def _parse_raw(transcript: Any) -> list[dict[str, str]]:
-    """
-    Normalise input to a list of {"speaker": ..., "text": ...} dicts.
-    """
+def _split_turns(transcript: Any) -> list[tuple[str, str]]:
+    """Normalise input to a list of (speaker, text) pairs."""
     if isinstance(transcript, list):
-        turns = []
+        result = []
         for item in transcript:
             if isinstance(item, dict):
-                turns.append({
-                    "speaker": str(item.get("speaker", "")),
-                    "text": str(item.get("text", "")),
-                })
+                result.append((
+                    str(item.get("speaker", "")),
+                    str(item.get("text", "")),
+                ))
             else:
-                turns.append({"speaker": "", "text": str(item)})
-        return turns
-
+                result.append(("", str(item)))
+        return result
     if isinstance(transcript, str):
-        lines = [l.rstrip() for l in transcript.splitlines() if l.strip()]
-        turns = []
-        for line in lines:
-            m = _SPEAKER_RE.match(line)
-            if m:
-                turns.append({"speaker": m.group(1), "text": m.group(2)})
-            else:
-                turns.append({"speaker": "", "text": line})
-        return turns
-
-    raise TypeError(f"transcript must be str or list, got {type(transcript)}")
+        return _split_turns_str(transcript)
+    raise TypeError(f"transcript must be str or list, got {type(transcript)!r}")
 
 
-def _count_families(tagged: list[dict[str, Any]]) -> dict[str, int]:
-    counts: dict[str, int] = {"P": 0, "K": 0, "Q": 0, "T": 0, "S": 0}
-    for t in tagged:
-        if t["bone"]:
-            counts[t["primary"]] = counts.get(t["primary"], 0) + 1
-    return counts
+# ---------------------------------------------------------------------------
+# Round grouper
+# ---------------------------------------------------------------------------
+
+
+def _group_into_rounds(turns: list[Turn], strategy: str = "cycle") -> list[Round]:
+    """Group Turn objects into Round objects.
+
+    Parameters
+    ----------
+    strategy:
+        ``"cycle"`` — a new round starts each time the first-seen speaker
+        takes the floor again after at least one other speaker has spoken.
+        Works for N speakers.
+
+        ``"pairs"`` — every consecutive pair of turns is one round
+        (ignores speaker identity).
+    """
+    if not turns:
+        return []
+
+    if strategy == "pairs":
+        rounds: list[Round] = []
+        for i in range(0, len(turns), 2):
+            rounds.append(Round(len(rounds), turns[i : i + 2]))
+        return rounds
+
+    # strategy == "cycle"
+    anchor = turns[0].speaker
+    rounds = []
+    current: list[Turn] = []
+    seen_others = False
+
+    for turn in turns:
+        if turn.speaker == anchor and seen_others and current:
+            rounds.append(Round(len(rounds), current))
+            current = [turn]
+            seen_others = False
+        else:
+            if turn.speaker != anchor:
+                seen_others = True
+            current.append(turn)
+
+    if current:
+        rounds.append(Round(len(rounds), current))
+
+    return rounds
+
+
+# ---------------------------------------------------------------------------
+# Tokenizer
+# ---------------------------------------------------------------------------
+
+# Split into word-runs and individual punctuation characters
+_WORD_RE = re.compile(r"[A-Za-z''\-]+|[^\w\s]|\d+")
+
+
+def _raw_tokens(text: str) -> list[str]:
+    """Return list of raw token strings from utterance text."""
+    return _WORD_RE.findall(text)
+
+
+# ---------------------------------------------------------------------------
+# Bone classifier
+# ---------------------------------------------------------------------------
+
+
+class _BoneClassifier:
+    """Classifies token sequences using CanonLoader as its model."""
+
+    def __init__(self, canon: CanonLoader) -> None:
+        self._canon = canon
+
+        # Pre-sort prefixes/suffixes longest-first so greedy matching works
+        self._prefixes: list[str] = sorted(
+            [
+                a["affix"].rstrip("-")
+                for a in canon.all_affixes()
+                if a.get("type") == "prefix"
+            ],
+            key=len,
+            reverse=True,
+        )
+        self._suffixes: list[str] = sorted(
+            [
+                a["affix"].lstrip("-")
+                for a in canon.all_affixes()
+                if a.get("type") == "suffix"
+            ],
+            key=len,
+            reverse=True,
+        )
+        self._affix_cache: dict[str, Any] = {}
+
+    def _make_bone(
+        self,
+        surface: str,
+        normalized: str,
+        bone_type: str,
+        entry: dict[str, Any],
+    ) -> BoneToken:
+        return BoneToken(
+            surface=surface,
+            normalized=normalized,
+            bone_type=bone_type,
+            primary=entry["primary"],
+            families=entry.get("families", [entry["primary"]]),
+            entry=entry,
+        )
+
+    def classify_sequence(
+        self, raw_tokens: list[str]
+    ) -> list[BoneToken | FleshToken]:
+        """Classify a flat list of raw token strings into BoneToken/FleshToken.
+
+        Tries (in order) for each position:
+
+        1. Multiword join (2-gram smash)
+        2. Single word lookup
+        3. Prefix affix strip
+        4. Suffix affix strip
+        5. Punctuation lookup (only entries that emit tokens)
+        6. Flesh
+        """
+        result: list[BoneToken | FleshToken] = []
+        i = 0
+        n = len(raw_tokens)
+
+        while i < n:
+            tok = raw_tokens[i]
+
+            # 1. Try 2-gram multiword join
+            if i + 1 < n:
+                bigram = (tok + raw_tokens[i + 1]).lower().replace(" ", "")
+                entry = self._canon.lookup_word(bigram)
+                if entry and entry.get("joined"):
+                    result.append(
+                        self._make_bone(
+                            tok + " " + raw_tokens[i + 1],
+                            bigram,
+                            "multiword",
+                            entry,
+                        )
+                    )
+                    i += 2
+                    continue
+
+            # 2. Single word lookup
+            entry = self._canon.lookup_word(tok)
+            if entry:
+                result.append(self._make_bone(tok, tok.lower(), "word", entry))
+                i += 1
+                continue
+
+            # 3. Prefix affix strip
+            lower = tok.lower()
+            matched_affix = False
+            for pre in self._prefixes:
+                if lower.startswith(pre) and len(lower) - len(pre) >= 2:
+                    affix_key = pre + "-"
+                    if affix_key not in self._affix_cache:
+                        self._affix_cache[affix_key] = self._canon.lookup_affix(
+                            affix_key
+                        )
+                    entry = self._affix_cache[affix_key]
+                    if entry:
+                        result.append(
+                            self._make_bone(tok, affix_key, "affix", entry)
+                        )
+                        matched_affix = True
+                        break
+
+            if matched_affix:
+                i += 1
+                continue
+
+            # 4. Suffix affix strip
+            for suf in self._suffixes:
+                if lower.endswith(suf) and len(lower) - len(suf) >= 2:
+                    affix_key = "-" + suf
+                    if affix_key not in self._affix_cache:
+                        self._affix_cache[affix_key] = self._canon.lookup_affix(
+                            affix_key
+                        )
+                    entry = self._affix_cache[affix_key]
+                    if entry:
+                        result.append(
+                            self._make_bone(tok, affix_key, "affix", entry)
+                        )
+                        matched_affix = True
+                        break
+
+            if matched_affix:
+                i += 1
+                continue
+
+            # 5. Punctuation — only count entries that actually emit tokens
+            entry = self._canon.lookup_punct(tok)
+            if entry and entry.get("tokens_emitted", 0) > 0:
+                result.append(self._make_bone(tok, tok, "punct", entry))
+                i += 1
+                continue
+
+            # 6. Flesh
+            result.append(FleshToken(tok))
+            i += 1
+
+        return result
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_transcript(transcript: Any) -> dict[str, Any]:
-    """
-    Parse a transcript into tagged turns with PKQTS bone counts.
+
+def parse_transcript(
+    transcript: Any,
+    round_strategy: str = "cycle",
+    canon: CanonLoader | None = None,
+) -> ParsedTranscript:
+    """Parse a transcript into a :class:`ParsedTranscript`.
 
     Parameters
     ----------
     transcript:
-        A list of ``{"speaker": str, "text": str}`` dicts **or** a plain
-        string with one turn per line, optionally prefixed ``Speaker: text``.
+        Either a **list of dicts** ``[{"speaker": str, "text": str}, ...]``
+        or a **plain string** with speaker-prefixed lines
+        (e.g. ``"A: hello\\nB: world"``).
+        Multiple label formats are detected automatically:
+        ``Speaker:``, ``[Speaker]:``, ``**Speaker**:``.
+
+    round_strategy:
+        ``"cycle"`` (default) — a round ends when the anchor speaker
+        (first speaker seen) regains the floor after at least one other
+        speaker has spoken.
+
+        ``"pairs"`` — every consecutive pair of turns is one round.
+
+    canon:
+        Optional pre-loaded :class:`~interdependent_lib.edcm.canon.CanonLoader`.
+        If *None*, a fresh instance is created.
 
     Returns
     -------
-    dict with keys:
-        turns     : list of per-turn analysis dicts
-        totals    : aggregate PKQTS counts across all turns
-        join_log  : all multiword-join events (for audit / losslessness)
+    ParsedTranscript
     """
-    raw_turns = _parse_raw(transcript)
+    if canon is None:
+        canon = CanonLoader()
 
-    out_turns: list[dict[str, Any]] = []
-    totals: dict[str, int] = {"P": 0, "K": 0, "Q": 0, "T": 0, "S": 0}
-    join_log: list[dict[str, Any]] = []
+    classifier = _BoneClassifier(canon)
+    raw_turns = _split_turns(transcript)
 
-    for i, turn in enumerate(raw_turns):
-        raw_text = turn["text"]
-        normalized, join_events = _apply_joins(raw_text)
+    turns: list[Turn] = []
+    for speaker, text in raw_turns:
+        toks = _raw_tokens(text)
+        classified = classifier.classify_sequence(toks)
+        turns.append(Turn(speaker, text, classified))
 
-        for ev in join_events:
-            join_log.append({"turn": i, **ev})
+    rounds = _group_into_rounds(turns, strategy=round_strategy)
+    return ParsedTranscript(rounds=rounds, turns=turns)
 
-        tokens = _tokenize(normalized)
-        tagged = _tag_tokens(tokens, join_events)
-        counts = _count_families(tagged)
 
-        for family, n in counts.items():
-            totals[family] = totals.get(family, 0) + n
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-        out_turns.append({
-            "speaker": turn["speaker"],
-            "raw_text": raw_text,
-            "normalized_text": normalized,
-            "tokens": tokens,
-            "tagged": tagged,
-            "bone_counts": counts,
-            "bone_tokens": [t["token"] for t in tagged if t["bone"]],
-        })
 
-    return {"turns": out_turns, "totals": totals, "join_log": join_log}
+def _ordered_unique(iterable: Any) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in iterable:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result

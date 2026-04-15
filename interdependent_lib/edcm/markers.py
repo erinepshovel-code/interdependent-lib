@@ -80,14 +80,13 @@ def family(letter: str) -> list[Any]:
 
 
 def marker_set() -> frozenset[str]:
-    """Return a frozenset of all marker word/phrase strings (for fast membership tests)."""
+    """Return a frozenset of all marker phrases across all metric categories."""
     result: set[str] = set()
-    for entries in markers().values():
-        for entry in entries:
-            if isinstance(entry, dict):
-                w = entry.get("word") or entry.get("marker") or entry.get("phrase")
-                if w:
-                    result.add(w)
-            elif isinstance(entry, str):
-                result.add(entry)
+    for fam_data in markers().values():
+        if isinstance(fam_data, dict):
+            for phrases in fam_data.get("markers", {}).values():
+                if isinstance(phrases, list):
+                    for p in phrases:
+                        if isinstance(p, str):
+                            result.add(p)
     return frozenset(result)
