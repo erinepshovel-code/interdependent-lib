@@ -81,13 +81,17 @@ interdependent_lib/
     ├── __init__.py       # re-exports full public API
     ├── bones.py          # bones(), words_by_family(), bone_set(), affixes(), punctuation()
     ├── markers.py        # markers(), family(), marker_set()
+    ├── canon/
+    │   └── __init__.py   # CanonLoader: unified lookup for words/affixes/punct/markers
     ├── data/
     │   ├── bones_words_v1.json    # 253 bones + 35 multiword joins
     │   ├── bones_affixes_v1.json  # inflectional + derivational affixes
     │   ├── bones_punct_v1.json    # punctuation entries
-    │   └── markers_v1.json        # 9 marker families × 6 entries
+    │   └── markers_v1.json        # 9 behavioral metrics (C–I) with marker phrase lists
     └── parser/
-        └── turns_rounds.py        # parse_transcript(): join → tokenize → tag → PKQTS counts
+        └── turns_rounds.py        # parse_transcript() → ParsedTranscript
+                                   # BoneToken, FleshToken, Turn, Round, ParsedTranscript
+                                   # _BoneClassifier: multiword→word→prefix→suffix→punct→flesh
 ```
 
 ## Key design notes
@@ -101,6 +105,18 @@ interdependent_lib/
 - **`pcea` depends on `cryptography>=41`**; `ptca` and `edcm` are stdlib-only.
 - **EDCM data** is loaded lazily via `importlib.resources` and cached with
   `lru_cache`; JSON files ship as package data inside `edcm/data/`.
+- **`CanonLoader`** (`edcm/canon/__init__.py`) is the single data-access layer
+  used by the parser. It indexes words, multiword joins, affixes, punctuation,
+  and behavioral markers for O(1) lookup. Mirrors the upstream
+  `The-Interdependency/edcmbone` `Backend/src/edcmbone/canon/loader.py`.
+- **`parse_transcript`** returns a `ParsedTranscript` object (not a dict).
+  Access `.turns`, `.rounds`, `.speakers`, `.family_counts()`, `.bone_count()`.
+  Each `Turn` has `.bone_tokens` (list of `BoneToken`), `.flesh_tokens`, and
+  `.family_counts` (Counter). Accepts `str` or `list[dict]` input.
+- **9 behavioral metrics** in `markers_v1.json` (C/R/D/N/L/O/F/E/I): each metric
+  has `formula`, `computable_from_markers`, `requires_embeddings`, and a
+  `markers` dict of category → phrase list. Access via `CanonLoader.metric_info()`
+  or `CanonLoader.all_marker_phrases()`.
 
 ## Common tasks
 
